@@ -1,0 +1,31 @@
+---
+title: "01_smpl_demog_geocdng"
+author: "Puvvula"
+date: "2024-04-15"
+output: pdf_document
+---
+
+#read address data
+```{r}
+#MRN-participant_id link file
+mrn_link<- read_csv(paste0(data, "mrn_link.csv")) |> 
+  mutate(MRN = str_pad(MRN, width = 9, pad = "0"),
+         pt_id = as.character(pt_id))
+
+#patient-demographics file
+pt_demog<- read_csv(paste0(data, "pt_demograph.csv")) |> 
+  mutate(pt_id = str_extract(CLIENT_SAMPLE_ID, "\\d+"),
+         pt_id = ifelse(!is.na(pt_id), str_replace(pt_id, "^0+", ""), NA))
+
+pt_demog_w_mrn<- left_join(pt_demog, mrn_link, by="pt_id")
+
+#address file for geocoding
+address<- read_csv(paste0(data, "pt_address.csv")) |>
+  mutate(add_line_1 = str_replace(add_line_1, "(?i)\\b(?:apt|unit)\\b\\s*\\w*", ""),
+         zip = str_extract(zip, "\\b\\d{5}\\b")) |>
+  filter(!(study_id == "CRIB_rita" & !(MRN %in% pt_demog_w_mrn$MRN)))
+
+
+
+```
+
