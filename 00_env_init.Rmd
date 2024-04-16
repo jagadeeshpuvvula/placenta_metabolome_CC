@@ -8,7 +8,7 @@ output: pdf_document
 ```{r}
 library(pacman)
 pacman::p_load(tidyverse, janitor, stringr,  skimr,viridis,
-               reshape2, kableExtra, stringr)
+               reshape2, kableExtra, stringr, tidygeocoder)
 ```
 
 ```{r}

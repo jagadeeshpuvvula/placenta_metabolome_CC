@@ -9,23 +9,66 @@ output: pdf_document
 ```{r}
 #MRN-participant_id link file
 mrn_link<- read_csv(paste0(data, "mrn_link.csv")) |> 
-  mutate(MRN = str_pad(MRN, width = 9, pad = "0"),
+  mutate(MRN = ifelse(str_detect(MRN, "^peach"), MRN, str_pad(MRN, width = 9, pad = "0")),
          pt_id = as.character(pt_id))
 
 #patient-demographics file
 pt_demog<- read_csv(paste0(data, "pt_demograph.csv")) |> 
   mutate(pt_id = str_extract(CLIENT_SAMPLE_ID, "\\d+"),
+         pt_id = ifelse(str_detect(CLIENT_SAMPLE_ID, "^PEACH"), paste0("peach_", pt_id), pt_id),
          pt_id = ifelse(!is.na(pt_id), str_replace(pt_id, "^0+", ""), NA))
 
 pt_demog_w_mrn<- left_join(pt_demog, mrn_link, by="pt_id")
+```
 
+#address geocoding
+```{r}
 #address file for geocoding
 address<- read_csv(paste0(data, "pt_address.csv")) |>
+  select(-c(REC_CREATE_DATE))|>
   mutate(add_line_1 = str_replace(add_line_1, "(?i)\\b(?:apt|unit)\\b\\s*\\w*", ""),
          zip = str_extract(zip, "\\b\\d{5}\\b")) |>
-  filter(!(study_id == "CRIB_rita" & !(MRN %in% pt_demog_w_mrn$MRN)))
+  filter(!(study_id == "CRIB_rita" | study_id == "PEACH_Aimin") |
+           (study_id == "CRIB_rita" | study_id == "PEACH_Aimin") & 
+           (MRN %in% pt_demog_w_mrn$MRN)) |>
+  mutate(MRN= as.numeric(MRN)+2255612) |>
+  mutate(state = fct_recode(state,
+                            "CA" = "California",
+                            "DE" = "Delaware",
+                            "MD" = "Maryland",
+                            "NJ" = "New Jersey",
+                            "PA" = "Pennsylvania"),
+         city = str_to_title(city),
+         addr = paste(add_line_1, city, state, zip, sep = ", "))
 
+geocoded_addresses <- address |>
+  geocode(addr, method = 'osm', lat = latitude , long = longitude)
 
+#geocoded address export
+geocoded_addresses_exp<- geocoded_addresses |>
+  mutate(MRN= as.character(as.numeric(MRN)-2255612))|>
+  filter(study_id != "Dummy_mixing")
 
+write_csv(geocoded_addresses_exp, paste0(analy_dat, "geocoded_addrs.csv"))
 ```
+
+Mapping geocoded addresses for context
+```{r}
+geocoded_df<- read_csv(paste0(analy_dat, "geocoded_addrs.csv")) |>
+  filter(!is.na(zip)) |>
+  filter(state != "CA")
+
+ggplot(geocoded_df, aes(longitude, latitude)) +
+  borders("county", regions = c("Pennsylvania", "New Jersey", "Delaware", "Maryland")) + 
+  geom_point(aes(color = factor(study_id)), size=1) +
+  ggspatial::annotation_scale(plot_unit = "km", location= "br")+
+  theme_void()+
+  theme(legend.position = "bottom", legend.box = "horizontal", legend.justification = "center")+
+  labs(color="Study ID (n=195)")+
+  guides(color = guide_legend(override.aes = list(shape = 15, size = 5)))
+
+ggsave(paste0(result, "mapping_participants.pdf"), dpi=300)
+```
+
+
 
