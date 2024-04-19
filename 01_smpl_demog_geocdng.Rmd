@@ -19,6 +19,18 @@ pt_demog<- read_csv(paste0(data, "pt_demograph.csv")) |>
          pt_id = ifelse(!is.na(pt_id), str_replace(pt_id, "^0+", ""), NA))
 
 pt_demog_w_mrn<- left_join(pt_demog, mrn_link, by="pt_id")
+
+#import delivery date and additional variables
+pt_date<- read_csv(paste0(data, "pt_date_info.csv")) |>
+  clean_names()|>
+  select(-c(study, lmp_date, height_inch, pp_weight_lb))|> 
+  mutate(delivery_date = mdy(delivery_date),
+         ga_days = round(as.numeric(ga_at_delivery * 7)),
+         lmp_date = delivery_date - days(ga_days))
+
+#join dates with other variables
+pt_final<- left_join(pt_demog_w_mrn, pt_date, by="pt_id")
+write_csv(pt_final, paste0(data, "pt_demog_final.csv"))
 ```
 
 #address geocoding
@@ -50,6 +62,17 @@ geocoded_addresses_exp<- geocoded_addresses |>
   filter(study_id != "Dummy_mixing")
 
 write_csv(geocoded_addresses_exp, paste0(analy_dat, "geocoded_addrs.csv"))
+```
+
+#join geocoded info with participant final data
+```{r}
+pt_geocoded<- read_csv(paste0(data, "geocoded_addrs.csv")) |>
+  mutate(MRN = ifelse(str_detect(MRN, "^peach"), MRN, str_pad(MRN, width = 9, pad = "0")))
+pt_demog_final<- read_csv(paste0(data, "pt_demog_final.csv"))
+
+#join all data for exposure assessment
+df_fin<- left_join(pt_final, pt_geocoded, by="MRN")
+write_csv(df_fin, paste0(analy_dat, "df_for_exposures.csv"))
 ```
 
 Mapping geocoded addresses for context

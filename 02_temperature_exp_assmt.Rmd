@@ -1,0 +1,97 @@
+---
+title: "02_temperature_exp_assmt"
+author: "Puvvula"
+date: "2024-04-18"
+output: pdf_document
+---
+
+#read participant data
+```{r}
+df<- read_csv(paste0(analy_dat, "df_for_exposures.csv")) |>
+  dplyr::select(-c(3:7, 9, 11:16, 18:20, 22, 33:37, 40)) |>
+  mutate(lmp_date = as.Date(mdy(lmp_date), format="%Y-%m-%d"),
+         delivery_date = as.Date(mdy(delivery_date), format="%Y-%m-%d"),
+         start_date = lmp_date - days(14)) |>
+  drop_na(9, 18, 19) |>
+  rename(id=pt_id, lat= latitude, long = longitude) |>
+  dplyr::select(c(7, 17:19, 9))
+```
+
+
+```{r}
+for (i in seq(1, nrow(df), by = 5)) {
+    # Get a subset of 5 observations
+    subset_df <- df[i:min(i+4, nrow(df)), ]
+    # Define the name for temp_exp variable
+    temp_exp_name <- paste0("temp_exp_", ceiling(i/5))
+    # Call the function with the subset
+    assign(temp_exp_name, getRasterValueInRange(subset_df, input_folder_name = "/Volumes/Extreme Pro/tmax/daily"))
+}
+```
+
+```{r}
+# List all objects in the global environment
+all_objects <- ls()
+
+# Filter out dataframes that start with "temp_exp_"
+temp_exp_dataframes <- all_objects[grep("^temp_exp_", all_objects)]
+
+# Initialize an empty dataframe to store merged data
+merged_temp_exp <- data.frame()
+
+# Merge all temp_exp_ dataframes into a single dataframe
+if (length(temp_exp_dataframes) > 0) {
+  merged_temp_exp <- Reduce(function(x, y) merge(x, y, all = TRUE), lapply(temp_exp_dataframes, get))
+}
+```
+
+```{r}
+df_exprt<- left_join(df, merged_temp_exp, by="id")
+
+save(df_exprt, file = paste0(analy_dat, "merged_temp_exp.rda"))
+```
+
+#further cleaning
+```{r}
+load(paste0(analy_dat, "merged_temp_exp.rda"))
+
+#split liest to individual variable
+df_new <- split_and_expand(df_exprt, "raster_value", "temp_w_")
+
+#export clean data
+write_csv(df_new, paste0(analy_dat, "pt_demo_exp_fin.csv"))
+```
+
+#exploring exposure data
+```{r}
+df<- read_csv(paste0(analy_dat, "pt_demo_exp_fin.csv"))
+
+df_plt<- df |>
+  dplyr::select(c(24:66)) 
+
+df_plt_long<- df_plt|>
+  gather(key = "variable", value = "value")
+
+# Reorder levels of variable factor based on the desired sequence
+df_plt_long$variable <- factor(df_plt_long$variable, levels = names(df_plt))
+```
+
+```{r}
+ggplot(df_plt_long, aes(x = value)) +
+  geom_density(fill = "skyblue", color = "blue") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "",
+       x = "Average of Maximum temperature (C) by gestational week\n[2 weeks before LMP - Delivery]",
+       y = "Density")+
+  theme_bw() +
+  theme(panel.border = element_blank(), 
+                    panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank(), 
+                    axis.line = element_line(colour = "black"),
+        strip.background = element_rect(colour="transparent", 
+                                      fill="transparent"))
+
+ggsave(paste0(result, "exp_density_plt.tiff"), 
+       width = 14,height = 10)
+```
+
