@@ -1,0 +1,136 @@
+---
+title: "04_metabolomics"
+author: "Puvvula"
+date: "2024-05-13"
+output: pdf_document
+---
+
+```{r}
+load(paste0(analy_dat, "df_for_metabolomics.rda"))
+
+df_update<- df_update |>
+  dplyr::select(-c(2,3, 6:9, 11, 14:23)) |>
+  mutate(maternal_age = ifelse(is.na(maternal_age), median(maternal_age, na.rm = TRUE), maternal_age),
+         bmi = ifelse(is.na(bmi), median(bmi, na.rm = TRUE), bmi)) |>
+  clean_names()
+```
+
+#read metabolomics data
+```{r}
+#batch normalized and imputed for any missing metabolite intensity - as received from Metabolon
+placenta_metabolome<- read_csv(paste0(data, "metabolome_batch_norm_imputed.csv")) |>
+  mutate(across(2:last_col(), ~ log10(. + 0.00001))) |>
+  mutate(across(2:last_col(), ~ (. - mean(.)) / sd(.)))
+
+#annotation dictionary
+df_annotations<- read_csv(paste0(data, "metabolome_annota.csv")) |>
+  clean_names()
+
+#summarizing metabolite annotations
+df_summary <- df_annotations |>
+  group_by(super_pathway) |>
+  summarise(metabolites_count = n(),
+            UNIQUE_SUB_PATHWAYS_count = n_distinct(sub_pathway),
+            SUB_PATHWAYS_list = paste(sub_pathway, collapse = ", "))
+```
+
+#remove un-named metabolites for the analysis
+```{r}
+filtered_chem_ids <- c("PARENT_SAMPLE_NAME", df_annotations |>
+                         filter(type == "NAMED") |>
+                         pull(chem_id))
+  
+df_placenta_metabolome <- placenta_metabolome |>
+  dplyr::select(any_of(as.character(filtered_chem_ids))) |>
+  clean_names()
+```
+
+#drop metabolites that have identical values 
+```{r}
+df_placenta_metabolome_filt <- df_placenta_metabolome |>
+  select(-where(~any(is.na(.))))
+```
+
+
+#drop 7 participants from metabolome data with missing address and dates
+```{r}
+filtered_placenta_metabolome <- df_placenta_metabolome_filt |>
+  filter(parent_sample_name %in% df_update$parent_sample_name)
+
+#transpose metabolite set
+transposed_df <- filtered_placenta_metabolome |>
+  t() |>
+  as_tibble(rownames = "Variable")
+
+#Manually fixing variable names
+write_csv(transposed_df, paste0(analy_dat, "transposed_metabolome.csv"))
+placenta_metabolome<- read_csv(paste0(analy_dat, "transposed_metabolome.csv"))
+```
+
+#save df_update and filtered placenta_metabolome files for next steps
+```{r}
+save(df_update, placenta_metabolome, file = paste0(analy_dat, "df_metabolome_analysis.rda"))
+```
+
+#################################################################################
+#Metabolomics starts here
+#matching sequence
+```{r}
+load(paste0(analy_dat, "df_metabolome_analysis.rda"))
+
+appliedepi::match_sequence(df_update, placenta_metabolome, "parent_sample_name")
+```
+
+#get mwas results
+```{r}
+appliedepi::mwas_lm_loop(feature_table = placenta_metabolome, 
+                         exp_cov_data = df_update,
+                         exposures = names(df_update)[7:46],
+                         covar = c("bmi", "maternal_age", "race_ethnicity", "education", "tobacco_use_dur_preg", 
+                                   "alcoh_use_dur_preg", "parity", "gender"), 
+                         output_folder = "~/Documents/peach_heat_metab/result/lm_mwas",
+                         mwas_file_name="placenta_mwas.csv",
+                         fdr_cutoff= 0.2)
+```
+
+#import results
+```{r}
+res_df<- read_csv(paste0(result, "lm_mwas/placenta_mwas.csv")) |>
+  clean_names() |>
+  mutate(variable = str_replace(variable, "^lmp_", "LMP_"),
+         variable = str_replace(variable, "^pregnancy_", "Pregnancy_")) |>
+  mutate(variable = factor(variable, levels = c("LMP_2_weeks", "LMP_1_week", "Pregnancy_week_1", "Pregnancy_week_2", "Pregnancy_week_3", "Pregnancy_week_4", "Pregnancy_week_5", "Pregnancy_week_6", "Pregnancy_week_7", "Pregnancy_week_8", "Pregnancy_week_9", "Pregnancy_week_10", "Pregnancy_week_11", "Pregnancy_week_12", "Pregnancy_week_13", "Pregnancy_week_14", "Pregnancy_week_15", "Pregnancy_week_16", "Pregnancy_week_17", "Pregnancy_week_18", "Pregnancy_week_19", "Pregnancy_week_20", "Pregnancy_week_21", "Pregnancy_week_22", "Pregnancy_week_23", "Pregnancy_week_24", "Pregnancy_week_25", "Pregnancy_week_26", "Pregnancy_week_27", "Pregnancy_week_28", "Pregnancy_week_29", "Pregnancy_week_30", "Pregnancy_week_31", "Pregnancy_week_32", "Pregnancy_week_33", "Pregnancy_week_34", "Pregnancy_week_35", "Pregnancy_week_36", "Pregnancy_week_37", "Pregnancy_week_38")))
+```
+
+```{r}
+ggplot(res_df, aes(x = estimate, y = -log10(pr_t), color = beta_dir)) +
+  geom_point(size = 0.25) +
+  scale_x_continuous(name = "Adjusted beta coefficient per unit change in maternal maximum temperature exposure") +
+  scale_y_continuous(name = "-log10(P-value)", labels = scales::comma) +
+  facet_wrap( ~ factor(variable), ncol = 4) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 11), 
+        axis.title = element_text(size = 11),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom", # set legend position to bottom
+        legend.box = "horizontal",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.25),
+        strip.background = element_blank(),
+        strip.text = element_text(size=10, face = "bold", angle = 0, hjust = 0, vjust = 0),
+        panel.spacing = unit(0.05, "lines"),
+        strip.placement = "outside") + 
+  labs(color = "Beta direction") +
+  scale_color_manual(values = c("positive-significant" = "blue",
+                                "negative-significant" = "#D55E00",
+                                "positive-non_significant" = "grey85",
+                                "negative-non_significant" = "grey85"))+
+  guides(color = guide_legend(override.aes = list(size = 5)))
+```
+
+#save plot
+```{r}
+ggsave(paste0(result, "lm_mwas/lm_volcano.tiff"),
+       dpi=300, height = 10, width = 10)
+```
+
