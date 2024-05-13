@@ -64,34 +64,42 @@ write_csv(df_new, paste0(analy_dat, "pt_demo_exp_fin.csv"))
 
 #exploring exposure data
 ```{r}
+#processed final data
 df<- read_csv(paste0(analy_dat, "pt_demo_exp_fin.csv"))
 
-df_plt<- df |>
-  dplyr::select(c(24:66)) 
+#additional covars received from Rita on May 08, 2024
+df_addl<- read_csv(paste0(data, "CRIB_deog_update.csv")) |>
+  dplyr::select(c(1:5))
 
-df_plt_long<- df_plt|>
-  gather(key = "variable", value = "value")
+#final merge
+# 5 subjects with NA's replaced as less than college degree
+df_update<- left_join(df, df_addl, by= "id") |>
+  mutate(parity = ifelse(parity == 0, "nulliparus", "parus"),
+         education = recode(education,
+                            "Advanced Degree" = "Advanced Degree",
+                            "College Graduate" = "College Graduate",
+                            "Completed High school" = "Less than College Degree",
+                            "GED_AA" = "Less than College Degree",
+                            "Less than High School" = "Less than College Degree",
+                            "NA" = "Less than College Degree"),
+         education = if_else(is.na(education), "Less than College Degree", education)) |>
+  rename(
+    "LMP-2_weeks" = temp_w_1,
+    "LMP-1_week" = temp_w_2
+  ) 
 
-# Reorder levels of variable factor based on the desired sequence
-df_plt_long$variable <- factor(df_plt_long$variable, levels = names(df_plt))
+#renaming labels
+for (i in 26:66) {
+    col_name <- names(df_update)[i]
+    if (startsWith(col_name, "temp_w_")) {
+        new_name <- paste0("Pregnancy_week_", as.numeric(str_extract(col_name, "\\d+")) - 2)
+        names(df_update)[i] <- new_name
+    }
+}
 ```
 
+#export data for metabolomics analysis
 ```{r}
-ggplot(df_plt_long, aes(x = value)) +
-  geom_density(fill = "skyblue", color = "blue") +
-  facet_wrap(~ variable, scales = "free") +
-  labs(title = "",
-       x = "Average of Maximum temperature (C) by gestational week\n[2 weeks before LMP - Delivery]",
-       y = "Density")+
-  theme_bw() +
-  theme(panel.border = element_blank(), 
-                    panel.grid.major = element_blank(),
-                    panel.grid.minor = element_blank(), 
-                    axis.line = element_line(colour = "black"),
-        strip.background = element_rect(colour="transparent", 
-                                      fill="transparent"))
-
-ggsave(paste0(result, "exp_density_plt.tiff"), 
-       width = 14,height = 10)
+save(df_update, file=paste0(analy_dat, "df_for_metabolomics.rda"))
 ```
 
