@@ -1,0 +1,76 @@
+---
+title: "03_prelim_metabolomics"
+author: "Puvvula"
+date: "2024-05-13"
+output: pdf_document
+---
+
+#load processed data for metabolomics
+```{r}
+load(paste0(analy_dat, "df_for_metabolomics.rda"))
+```
+
+#for probability density plots of exposure by pregnancy week
+```{r}
+df_plt<- df_update |>
+  dplyr::select(c(24:66)) 
+
+df_plt_long<- df_plt|>
+  gather(key = "variable", value = "value") 
+  
+
+# Reorder levels of variable factor based on the desired sequence
+df_plt_long$variable <- factor(df_plt_long$variable, levels = names(df_plt))
+```
+
+```{r}
+ggplot(df_plt_long, aes(x = value)) +
+  geom_density(fill = "blue", color = "royalblue") +
+  scale_fill_hue(c=45, l=80)+
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "",
+       x = "Average of Maximum temperature (°C) by gestational week\n[2 weeks before LMP - Delivery]",
+       y = "Density")+
+  xlim(-10, 40)+
+  theme_bw() +
+  theme(panel.border = element_blank(), 
+                    panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank(), 
+                    axis.line = element_line(colour = "black"),
+        strip.background = element_rect(colour="transparent", 
+                                      fill="transparent"))
+
+ggsave(paste0(result, "exp_density_plt.tiff"), 
+       width = 14,height = 10,
+       dpi=300)
+```
+
+#heatmap to visualize indiviaul exposure trends
+```{r}
+df_melted <- df_plt %>%
+  rownames_to_column(var = "Individual") %>%
+  pivot_longer(cols = -Individual, names_to = "Variable", values_to = "Value")
+
+# Define the order of variables
+variable_order <- names(df_plt) # Assuming the first column is not a variable
+
+# Convert Variable to a factor with levels in the defined order
+df_melted$Variable <- factor(df_melted$Variable, levels = variable_order)
+
+ggplot(df_melted, aes(x = Variable, y = Individual, fill = Value)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(option = "plasma", limits = c(-10, 40), name = "Temperature (°C)", direction = 1) +
+  geom_vline(xintercept = 40.5, linetype = "dashed", color = "black", size = 1.5)+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        axis.text.y = element_blank(),
+        legend.position = "bottom",
+        legend.direction = "horizontal") +
+  labs(title = "",
+       x = "",
+       y = "Study participants")
+
+ggsave(paste0(result, "exp_trend_plt.tiff"), 
+       width = 14,height = 10, dpi=300)
+```
+
